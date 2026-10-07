@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Working output from an actual run — a corpus belongs to the paper, not to the skill.
+lit/
+*.jsonl
+funnel.md
+corpus.jsonl
