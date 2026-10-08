@@ -133,7 +133,7 @@ One object per record. Nothing goes in a field that did not come back in a respo
 
 | Field | Notes |
 |---|---|
-| `key` | short cite key, `author+year+word` → `debenedetti2025camel` |
+| `key` | short cite key, `author+year+word` → `hofmann2025sandbox` |
 | `title`, `authors`, `year` | as returned; publisher or arXiv rendering of names |
 | `arxiv_id`, `doi` | `null` when there is none — **never** when you just didn't look |
 | `venue` | full official venue name; `"arXiv"` if preprint-only |
