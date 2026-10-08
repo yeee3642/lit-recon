@@ -1,10 +1,13 @@
 # Source cookbook
 
-Endpoints and field paths below were exercised against live responses on **2026-10-07** from this
-machine. APIs drift. If a response disagrees with this file, the response wins — fix the file.
+Endpoints and field paths below were exercised against live responses on **2026-10-07/08**. APIs
+drift. If a response disagrees with this file, the response wins — fix the file.
 
-Contents: [arXiv](#arxiv) · [Semantic Scholar](#semantic-scholar) · [Crossref](#crossref) ·
-[OpenAlex](#openalex) · [USENIX / DBLP](#venues-without-a-usable-api) · [Which source for which job](#which-source-for-which-job)
+Contents: [which source for which job](#which-source-for-which-job) · [arXiv](#arxiv) ·
+[Semantic Scholar](#semantic-scholar) · [Crossref](#crossref) · [OpenAlex](#openalex) ·
+[no usable API](#venues-without-a-usable-api) · [verification ladder](#the-verification-ladder)
+
+For stdlib-only clients, backoff and Atom parsing, see `constrained-runtime.md`.
 
 ---
 
@@ -13,14 +16,16 @@ Contents: [arXiv](#arxiv) · [Semantic Scholar](#semantic-scholar) · [Crossref]
 | Need | Use | Why |
 |---|---|---|
 | Recent preprints, frontier check | arXiv | Fastest to appear, no key, date-sortable |
-| Citation chasing (both directions) | Semantic Scholar | Only one of the four with usable `references` / `citations` |
+| Confirm an arXiv ID is real | arXiv `id_list=` | Authoritative and cheap; do this instead of trusting a list |
+| Citation chasing, both directions | Semantic Scholar | The only one of the four with usable `references` / `citations` |
+| Large keyword sweeps with boolean syntax | Semantic Scholar `/search/bulk` | Boolean operators, `year=`, `venue=`, 1000/page |
 | Confirm a venue you already suspect | Crossref | Authoritative `container-title`; poor at discovery |
-| Broad topical sweep, concept filters | OpenAlex | Biggest index, no key, rich filters |
-| Venue of a USENIX paper | Web search | No DOI exists |
-| Confirm a DBLP venue key | Semantic Scholar `externalIds.DBLP` | DBLP itself is bot-gated |
+| DBLP venue key | Semantic Scholar `/paper/batch` | DBLP itself is bot-gated |
+| Broad topical sweep, concept filters, venue counts | OpenAlex | Biggest index, rich filters |
+| A USENIX paper's page | Web search | No DOI exists |
 
-Run at least two sources per track. Single-source recall is not defensible, and the overlap between
-them is itself a signal — a paper only one index knows about usually means a venue problem worth
+Run at least two sources per track. Single-source recall is not defensible, and the disagreement
+between them is itself signal — a paper only one index knows about usually has a venue problem worth
 checking.
 
 ---
@@ -29,60 +34,81 @@ checking.
 
 ```
 https://export.arxiv.org/api/query?search_query=<q>&start=0&max_results=100
+https://export.arxiv.org/api/query?id_list=2406.13352,2501.00001
 ```
 
 ⚠ **https only.** Plain `http://export.arxiv.org/...` returned an empty body — no error, no results.
 
-Atom XML, not JSON.
+Atom XML. Namespaces are mandatory in every lookup; see `constrained-runtime.md` for a working parser.
 
 | Part | Syntax |
 |---|---|
 | Field prefixes | `ti:` title, `abs:` abstract, `au:` author, `cat:` category, `all:` everything |
-| Phrase | `abs:"prompt injection"` — quote it, URL-encode the quotes |
+| Phrase | `abs:"prompt injection"` — quote it, percent-encode the quotes |
 | Boolean | `+AND+`, `+OR+`, `+ANDNOT+` |
-| Category | `cat:cs.CR` (security), `cat:cs.AI`, `cat:cs.SE` |
-| Sort | `&sortBy=submittedDate&sortOrder=descending` — essential for the frontier gate |
-| Paging | `start` + `max_results`; 2000 max per call, ~1 call / 3s |
+| Category | `cat:cs.CR` security, `cat:cs.AI`, `cat:cs.SE`, `cat:cs.OS` |
+| Sort | `&sortBy=submittedDate&sortOrder=descending` — required for the frontier gate |
+| Paging | `start` + `max_results`; 2000 max per call, ≥3 s between calls |
+| **ID check** | `id_list=<csv>` returns only those entries. A bad ID yields no entry — that is your verification. |
 
-Total count lives in `<opensearch:totalResults>` — read it before paging, it tells you whether the
-query is too broad to be worth walking.
+Count lives in `<opensearch:totalResults>`; read it before paging to see whether the query is worth
+walking. Verified: `abs:"prompt injection"` → **1,025** (2026-10-08), newest submission that day.
 
-Verified: `abs:"prompt injection"` → **1022** results; newest submission dated 2026-10-06.
-
-Fields to pull per `<entry>`: `id` (the abs URL — the arXiv ID is its tail, keep the version
-suffix off the record `id`), `title`, `author/name`, `published`, `updated`, `summary`,
-`arxiv:primary_category`, and `arxiv:journal_ref` / `arxiv:doi` **when present — that is a free
-published-version upgrade**, so check it before running the upgrade search separately.
+Per `<entry>` pull: `id` (the abs URL; the ID is its tail — strip the `vN` suffix for the record),
+`title`, `author/name`, `published`, `updated`, `summary`, `arxiv:primary_category`, and
+**`arxiv:journal_ref` + `arxiv:doi`**. Those last two are a free published-version upgrade when
+present, so read them before running a separate upgrade search. Both are frequently `None` even for
+published work, so their absence proves nothing.
 
 ---
 
 ## Semantic Scholar
 
 ```
+https://api.semanticscholar.org/graph/v1/paper/search/bulk?query=<q>&fields=<csv>
 https://api.semanticscholar.org/graph/v1/paper/search?query=<q>&limit=20&fields=<csv>
 https://api.semanticscholar.org/graph/v1/paper/<id>/references?fields=<csv>&limit=100
 https://api.semanticscholar.org/graph/v1/paper/<id>/citations?fields=<csv>&limit=100
+POST https://api.semanticscholar.org/graph/v1/paper/batch   body {"ids": [...]}
 ```
 
-⚠ **Unauthenticated calls 429 immediately.** A cold first call on this machine returned
-`{"message": "Too Many Requests...", "code": "429"}`. No `S2_API_KEY` is set in the environment or
-any shell rc file. Consequences for a fan-out run:
+⚠ **Unauthenticated calls 429 immediately.** A cold first call returned
+`{"message": "Too Many Requests...", "code": "429"}` (2026-10-07). Consequences:
 
-- Give **one** track ownership of S2, or serialize S2 across tracks. Parallel tracks each retrying
-  independently turn a soft limit into a hard wall.
-- Exponential backoff, and **log every 429 to the track notes** — an undocumented 429 is a hole in
-  your recall that looks exactly like "nothing exists".
-- With a key, send it as `x-api-key: <key>` and the limit becomes workable.
+- Exponential backoff **2 / 4 / 8 / 16 s**, and **log every 429** to the track notes. A swallowed 429
+  is a recall hole that looks exactly like "nothing exists".
+- Give **one** track ownership of S2, or serialize across tracks. Parallel agents retrying
+  independently turn a soft limit into a wall.
+- With a key, send `x-api-key: <key>` and the limit becomes workable.
+
+**`/search/bulk` is the one to use for sweeps.** It takes boolean syntax and returns up to 1000 per
+page with a continuation `token`:
+
+| Operator | Meaning |
+|---|---|
+| `+` | AND · `agent+sandbox` |
+| `\|` | OR · `sandbox\|isolation` |
+| `-` | NOT · `agent-reinforcement` |
+| `"…"` | phrase · `"information flow control"` |
+| `*` | prefix · `capab*` |
+| `~N` | fuzzy phrase within N words |
+
+Plus filters `year=2023-2026`, `venue=<csv>`, `fieldsOfStudy=`, `openAccessPdf`. Note `/search/bulk`
+has no relevance ranking — it is a filter, not a search engine, so pair a tight boolean with
+`year=` rather than hoping the top of the list is the good part.
+
+Useful `fields`: `title,abstract,year,venue,publicationVenue,externalIds,authors,citationCount,
+publicationTypes,openAccessPdf`. `externalIds` carries `DOI`, `ArXiv`, `DBLP`, `CorpusId` — this is
+how you get a DBLP venue key without touching DBLP.
 
 `<id>` accepts `arXiv:2406.13352`, `DOI:10.1145/…`, `CorpusId:…`, or the S2 `paperId`.
 
-Useful `fields`: `title,abstract,year,venue,publicationVenue,externalIds,authors,citationCount,
-openAccessPdf,publicationTypes`. `externalIds` is where `DOI`, `ArXiv`, `DBLP` and `CorpusId` live —
-this is how you confirm a DBLP venue key without touching DBLP.
+**This is the only source that chases citations.** `/references` is backward (what the seed cites),
+`/citations` is forward (who cites the seed). Forward from a 2023–2024 seed is the highest-yield
+single query in the whole method for finding current work under different vocabulary.
 
-**This is the only source that does citation chasing.** `/references` is backward (what the seed
-cites), `/citations` is forward (who cites the seed). Forward from a 2023–2024 seed is the highest-
-yield single query in the whole method for finding 2025–2026 work that uses different vocabulary.
+`/paper/batch` (POST) resolves up to 500 IDs in one call — the cheapest way to verify a seed list and
+backfill venues in bulk.
 
 ---
 
@@ -90,36 +116,41 @@ yield single query in the whole method for finding 2025–2026 work that uses di
 
 ```
 https://api.crossref.org/works?query.bibliographic=<title>&rows=5&select=DOI,title,container-title,author,issued,type
+https://api.crossref.org/works/<doi>
 ```
 
 No key. Put a real address in `mailto=` for the polite pool.
 
-Verified: `query.bibliographic=AgentDojo` → `total-results: 2`, and the hit carried
+Verified: `query.bibliographic=AgentDojo` → `total-results: 2`, hit carried
 `container-title: ["Advances in Neural Information Processing Systems 37"]`, DOI `10.52202/079017-2636`.
 
-Two lessons in that one response:
+Two lessons in one response:
 
-- **Recall is thin.** Two results for a well-known paper. Crossref confirms; it does not discover.
-- **ML proceedings do have DOIs** (NeurIPS via proceedings.com, `10.52202/…`). Don't skip Crossref
-  for ML venues on the assumption they're DOI-less.
+- **Recall is thin.** Two results for a well-known paper. Crossref *confirms*; it does not discover.
+- **ML proceedings do have DOIs** (NeurIPS via proceedings.com). Don't skip Crossref for ML venues.
 
-⚠ IEEE conference papers frequently have **no deposited abstract**. `select=abstract` comes back
-empty and that is not an error. Judge from title + venue, or backfill from S2 / OpenAlex, and say
-which in the limitations paragraph.
+⚠ **No deposited abstract** for most IEEE conference papers and much Elsevier content. `select=abstract`
+comes back empty and that is the source, not your query. Record `abstract: null`, backfill from S2,
+and say so in `coverage_limits`.
 
 Field paths: `message.items[].DOI`, `.title[0]`, `.container-title[0]`, `.author[].given/.family`,
-`.issued.date-parts[0][0]` (year), `.type` (`proceedings-article` vs `journal-article` — this is
-your cleanest conference/journal discriminator).
+`.issued.date-parts[0][0]` (year), `.type` — `proceedings-article` vs `journal-article` is your
+cleanest conference/journal discriminator. For a single DOI, the same fields sit under `message`
+directly.
 
 ---
 
 ## OpenAlex
 
 ```
-https://api.openalex.org/works?filter=title_and_abstract.search:<q>&per-page=50&mailto=<addr>
+https://api.openalex.org/works?filter=title_and_abstract.search:<q>&per-page=200
+https://api.openalex.org/sources?search=<venue name>
 ```
 
-No key. `mailto` buys the polite pool.
+Auth depends on the harness. Either a polite-pool `mailto=<addr>`, **or** `api_key=<key>` — some
+setups require the key and forbid sending `mailto` alongside it. Follow the brief; see
+`constrained-runtime.md` for fetching a key from a broker without leaking it. No key available →
+skip OpenAlex and record the skip; it is a supplement, not a pillar.
 
 ⚠ **Use the filter, not bare `search=`.** `search=` runs full text:
 
@@ -128,36 +159,54 @@ No key. `mailto` buys the polite pool.
 | `search=agent sandbox` | 27,561 |
 | `filter=title_and_abstract.search:agent sandbox` | 2,313 |
 
-A 12× noise difference. The full-text index will hand you every paper that says your phrase once in
-a footnote.
+A 12× noise difference (2026-10-07). The full-text index hands you every paper that says your phrase
+once in a footnote.
+
+⚠ **Security proceedings are under-covered.** OpenAlex's indexing of top-tier security conference
+proceedings is incomplete, so a zero or a low count there is not evidence about the literature. Use
+it for breadth and for journal counting; confirm conference venues through Crossref or S2.
+
+⚠ **Repository deposits come back as results.** A top hit for one probe was a Zenodo upload titled
+like a paper. Check `primary_location.source.type == "repository"` and treat those as preprints.
 
 Filters worth combining: `publication_year:2023-2026`, `type:article`,
 `primary_location.source.type:conference|journal|repository`, `cited_by_count:>10`,
-`primary_location.source.id:<openalex source id>` (pin to one venue — this is how you count a
-journal, see `venues.md`).
-
-⚠ **Repository deposits come back as results.** A top hit for one probe was a Zenodo upload titled
-like a paper. Check `primary_location.source.type == "repository"` and treat those as preprints, not
-peer-reviewed work. The response also exposes `host_organization_name`, which makes the junk obvious.
+`primary_location.source.id:<source id>` (pin to one venue — see `venues.md`), `has_doi:true`.
+`group_by=publication_year` gives per-year counts in one call.
 
 Field paths: `results[].id`, `.doi`, `.title`, `.publication_year`, `.type`,
-`.primary_location.source.display_name` (venue), `.primary_location.source.type`,
-`.authorships[].author.display_name`, `.cited_by_count`, `.abstract_inverted_index` (invert it to
-reconstruct the abstract), `.referenced_works`. `meta.count` is the total before paging; the
-response also reports `meta.cost_usd`.
+`.primary_location.source.display_name`, `.primary_location.source.type`,
+`.authorships[].author.display_name`, `.cited_by_count`, `.referenced_works`,
+`.abstract_inverted_index` (invert it to reconstruct the abstract). `meta.count` is the pre-paging
+total.
 
 ---
 
 ## Venues without a usable API
 
-**USENIX Security** — no DOIs at all, and usenix.org may be outside the sandbox's reachable set.
-Use web search against the per-year accepted-papers page (`USENIX Security 2025 accepted papers
-<topic>`), and record `"evidence": {"source": "web", "url": "...", "retrieved": "..."}` so the
-record still carries provenance even though no API returned it.
+**USENIX Security** — no DOIs at all, and usenix.org is commonly outside a sandbox allowlist. Reach
+the paper page through web search (`USENIX Security 2025 accepted papers <topic>`), and record
+`verified_by: "web_page"` with the URL so the record still carries provenance.
 
-**DBLP** — bot verification blocks programmatic access. Don't fight it. Take `externalIds.DBLP`
-from Semantic Scholar; the key itself (`conf/uss/...`, `journals/tdsc/...`) identifies the venue
-unambiguously, which is usually all you needed DBLP for.
+**DBLP** — bot verification blocks programmatic access. **Do not attempt it.** Take `externalIds.DBLP`
+from Semantic Scholar; the key itself (`conf/uss/…`, `journals/tdsc/…`) identifies the venue
+unambiguously, which is what you wanted DBLP for.
 
-**NDSS / IEEE S&P / CCS** — all have DOIs; Crossref and OpenAlex both resolve them. Prefer
-OpenAlex's `primary_location.source.id` for counting, Crossref's `container-title` for citing.
+**NDSS / IEEE S&P / CCS** — all have DOIs; Crossref and OpenAlex both resolve them. Prefer OpenAlex
+`primary_location.source.id` for counting, Crossref `container-title` for citing.
+
+---
+
+## The verification ladder
+
+Climb until something authoritative answers, then stop and record which rung answered in
+`verified_by`.
+
+1. **arXiv `id_list=`** — proves an arXiv ID exists and gives the canonical title.
+2. **Crossref `/works/{doi}`** — proves a DOI exists and gives the official venue.
+3. **S2 `/paper/batch`** — resolves a mixed list of IDs, fills venue and DBLP key.
+4. **OpenAlex** — breadth and counts; weakest on security proceedings.
+5. **Web page** — for venues with no API. Record the URL.
+
+Nothing answered → `verified: false` plus a `note` saying which rungs you tried. That record stays in
+the corpus, flagged. Dropping it hides the uncertainty; guessing manufactures it.

@@ -1,36 +1,61 @@
-# Venues: tiers, aliases, counting
+# Venues: vocabulary, tiers, counting
 
-## Tier table
+## The `venue_short` vocabulary
 
-Reading priority, not a quality verdict. It decides what you read closely versus what gets one
-sentence, and it is what the merge script writes into `tier`.
+A **closed set**. Every record takes exactly one value; anything not listed is `other`. A closed
+vocabulary is what makes the corpus groupable and countable — the moment two tracks write `SP` and
+`IEEE S&P` for the same venue, every count downstream is wrong.
+
+```
+S&P  CCS  USENIX Security  NDSS
+EuroS&P  ACSAC  RAID  AsiaCCS
+TDSC  TIFS  TOPS
+NeurIPS  ICLR  ICML  ACL  EMNLP
+ICSE  FSE  ASE
+OSDI  SOSP  EuroSys  ATC
+arXiv  tech-report  other
+```
+
+`venue` stays the **full official name** as the API returned it; `venue_short` is this tag. Keep both
+— the full string is your evidence, the tag is your index.
+
+Adjust the set to the paper's field before briefing tracks, and give every track the same one. If
+your field needs DSN, PETS, ESORICS, ISSTA or NAACL as first-class tags, add them *to the brief* and
+to `VENUE_ALIASES` in `merge_corpus.py` rather than letting agents improvise.
+
+## Tiers
+
+Reading priority, not a quality verdict: it decides what gets read closely versus what gets a
+sentence. `merge_corpus.py` derives `tier` from `venue_short`.
 
 | Tier | Venues |
 |---|---|
-| **A1** — 資安四大 | IEEE S&P (Oakland) · ACM CCS · USENIX Security · NDSS |
-| **A2** — second-tier security | EuroS&P · ACSAC · RAID · AsiaCCS |
-| **J** — security journals | TDSC · TIFS · TOPS |
-| **B** — strong adjacent | ML/NLP: NeurIPS, ICML, ICLR, ACL, EMNLP, NAACL · SE: ICSE, FSE, ASE, ISSTA · Systems: OSDI, SOSP, EuroSys, USENIX ATC, NSDI |
-| **C** — other peer-reviewed | Everything else with a real venue, incl. DSN, ESORICS, PETS/PoPETs, SaTML, workshops |
-| **P** — preprint only | arXiv, Zenodo, any `repository` source with no published version found |
-| **?** — unverified | No API response backs the venue. Stays in the corpus, flagged. |
+| **A1** | S&P · CCS · USENIX Security · NDSS |
+| **A2** | EuroS&P · ACSAC · RAID · AsiaCCS |
+| **J** | TDSC · TIFS · TOPS |
+| **B** | NeurIPS · ICLR · ICML · ACL · EMNLP · ICSE · FSE · ASE · OSDI · SOSP · EuroSys · ATC |
+| **C** | `other`, `tech-report` |
+| **P** | `arXiv` — preprint with no published version found |
+| **?** | No API response backs the venue. Stays in the corpus, flagged. |
 
-A1/A2/J/B reflect the stated priority for this project. Tier C exists so that a DSN or PETS paper
-doesn't get silently dropped — if you promote one into the chapter, that's a judgment call worth a
-line in the notes rather than a quiet reclassification.
+Two notes that matter more than the ordering:
 
-A preprint stays **P** until the upgrade check finds a published version. Then it takes the real
-venue's tier and keeps the arXiv ID as a secondary identifier.
+- **A preprint stays `P` until the upgrade check runs.** Then it takes the real venue's tier and keeps
+  its arXiv ID as a secondary identifier.
+- **`tech-report` is tier C but can be a primary source.** A vendor's sandbox design document or an
+  incident report is often the only account of what production systems actually do, and no amount of
+  peer-reviewed work substitutes for it. Low reading priority, high citation value — don't let the
+  tier talk you out of it.
 
 ## Alias normalization
 
-Indexes return the same venue under many strings. Normalize before counting or deduping, or the
-funnel lies. Match case-insensitively on substrings:
+Indexes return one venue under many strings. Normalize before counting or deduping, or the funnel
+lies. Match case-insensitively on substrings:
 
-| Canonical | Seen as |
+| `venue_short` | Seen as |
 |---|---|
-| `S&P` | IEEE Symposium on Security and Privacy · Proceedings - IEEE Symposium on Security and Privacy · SP · Oakland · `conf/sp/` |
-| `CCS` | ACM SIGSAC Conference on Computer and Communications Security · Proceedings of the ... CCS · `conf/ccs/` |
+| `S&P` | IEEE Symposium on Security and Privacy · Proceedings - IEEE Symposium on Security and Privacy · Oakland · `conf/sp/` |
+| `CCS` | ACM SIGSAC Conference on Computer and Communications Security · `conf/ccs/` |
 | `USENIX Security` | USENIX Security Symposium · Proceedings of the Nth USENIX Security Symposium · `conf/uss/` |
 | `NDSS` | Network and Distributed System Security Symposium · `conf/ndss/` |
 | `EuroS&P` | IEEE European Symposium on Security and Privacy · `conf/eurosp/` |
@@ -39,32 +64,36 @@ funnel lies. Match case-insensitively on substrings:
 | `AsiaCCS` | ACM Asia Conference on Computer and Communications Security · ASIACCS · `conf/asiaccs/` |
 | `TDSC` | IEEE Transactions on Dependable and Secure Computing · `journals/tdsc/` |
 | `TIFS` | IEEE Transactions on Information Forensics and Security · `journals/tifs/` |
-| `TOPS` | ACM Transactions on Privacy and Security · TOPS · TISSEC (pre-2016 name) |
+| `TOPS` | ACM Transactions on Privacy and Security · TISSEC (pre-2016 name) · `journals/tops/` |
 | `NeurIPS` | Advances in Neural Information Processing Systems NN · NIPS · `conf/nips/` |
+| `ICLR` / `ICML` | International Conference on Learning Representations / Machine Learning |
+| `ACL` / `EMNLP` | Annual Meeting of the Association for Computational Linguistics / Empirical Methods in NLP |
+| `ICSE` / `FSE` / `ASE` | International Conference on Software Engineering / Foundations of Software Engineering / Automated Software Engineering |
+| `OSDI` / `SOSP` / `EuroSys` / `ATC` | …Operating Systems Design and Implementation / Symposium on Operating Systems Principles / EuroSys / USENIX Annual Technical Conference |
+| `arXiv` | arXiv · CoRR · Zenodo and other `repository` sources |
 
-Two things that bite:
+Three that bite:
 
-- **`SP` is ambiguous.** It matches both IEEE S&P and signal-processing venues. Match the full
-  string, never the bare token.
-- **TOPS was TISSEC** until 2016. A pre-2016 count under the new name misses a decade — irrelevant
-  for a 2023–2026 window, but not if the window ever widens.
+- **Bare `SP` is ambiguous** — it matches signal-processing venues too. Match the full string, never
+  the token.
+- **`TOPS` was `TISSEC`** until 2016. Irrelevant inside a 2023–2026 window; not if the window widens.
+- **`ATC` vs `ACL`** are three characters apart and both appear as bare acronyms. Match on the
+  expanded name.
 
-The merge script holds this table in `VENUE_ALIASES`; add rather than replace when a new string
-shows up, and the alias file stays the single place the knowledge lives.
+Add to the table rather than replacing, so the knowledge keeps living in one place.
 
-## Counting a journal or venue per year
+## Counting a venue per year
 
-The defensible way to answer "how many TDSC papers 2023–2026 did X". Two steps, both verified live
-on 2026-10-07.
+The defensible way to answer "how many TDSC papers 2023–2026 did X". Both steps verified 2026-10-07.
 
-**1. Resolve the venue to an OpenAlex source ID** — don't filter on a venue name string, it will
-silently miss the records indexed under a variant.
+**1. Resolve the venue to an OpenAlex source ID.** Never filter on a venue-name string — it silently
+misses records indexed under a variant.
 
 ```bash
-curl -s "https://api.openalex.org/sources?search=IEEE+Transactions+on+Dependable+and+Secure+Computing&per-page=2&mailto=<addr>"
+curl -s "https://api.openalex.org/sources?search=IEEE+Transactions+on+Dependable+and+Secure+Computing&per-page=2"
 ```
 
-Confirmed IDs (check `issn_l` matches before trusting one):
+Confirmed (check `issn_l` before trusting one):
 
 | Venue | OpenAlex source ID | ISSN-L |
 |---|---|---|
@@ -75,21 +104,24 @@ Confirmed IDs (check `issn_l` matches before trusting one):
 **2. Filter and group.**
 
 ```bash
-curl -s "https://api.openalex.org/works?filter=primary_location.source.id:S133795288,publication_year:2023-2026,title_and_abstract.search:LLM%20agent&per-page=50&mailto=<addr>"
-# → meta.count = 10  (verified 2026-10-07)
+# topical count within one journal
+.../works?filter=primary_location.source.id:S133795288,publication_year:2023-2026,title_and_abstract.search:LLM%20agent
+# → meta.count = 10
 
-curl -s "https://api.openalex.org/works?filter=primary_location.source.id:S133795288,publication_year:2023-2026,title_and_abstract.search:agent&group_by=publication_year&mailto=<addr>"
-# → 2026:19  2025:11  2024:6  2023:7  (verified 2026-10-07)
+# per-year distribution
+.../works?filter=primary_location.source.id:S133795288,publication_year:2023-2026,title_and_abstract.search:agent&group_by=publication_year
+# → 2026:19  2025:11  2024:6  2023:7
 ```
 
-Notes that matter for a reportable number:
+What makes the number reportable:
 
-- `group_by` returns **unordered** buckets. Sort before putting them in a table.
-- Sanity-check the denominator. TDSC 2023–2026 total is **1,883**; if a topical filter returns a
-  number anywhere near that, the filter isn't doing anything.
-- A count is only as good as its query string. Report the exact filter alongside the number —
-  "10 TDSC papers" means nothing without `title_and_abstract.search:LLM agent` printed next to it.
-- 2026 counts are **partial** — the year isn't over. Say so, or the trend line you draw is an
-  artifact.
-- USENIX Security can't be counted this way (no DOIs, uneven OpenAlex coverage). Count it from the
-  per-year accepted-papers page via web search and mark the method difference in the report.
+- **`group_by` returns unordered buckets.** Sort before tabulating.
+- **Sanity-check the denominator.** TDSC 2023–2026 total is **1,883**. If a topical filter lands near
+  that, the filter isn't filtering.
+- **Print the filter next to the number.** "10 TDSC papers" means nothing without
+  `title_and_abstract.search:LLM agent` beside it.
+- **The current year is partial.** Say so, or the trend you draw is an artifact of the calendar.
+- **USENIX Security can't be counted this way** (no DOIs, uneven OpenAlex coverage) and **conference
+  counts from OpenAlex are unreliable in general** for security venues. Count those from the per-year
+  accepted-papers pages via web search, and mark the method difference in `coverage_limits` — mixing
+  an API count and a hand count in one table without saying so is the kind of thing a reviewer finds.
