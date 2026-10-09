@@ -118,6 +118,14 @@ The funnel is what makes the method defensible:
 It also reports how many records more than one track found — zero overlap means the tracks were cut
 so narrowly they share no boundary, which is a recall problem dressed as tidiness.
 
+## Pairs with
+
+[topic-pick](https://github.com/yeee3642/topic-pick) — the gated pipeline for deciding *what paper to
+write*. It calls this skill for its literature stages, then adds venue-threshold measurement,
+competitor survey, sub-claim collision checks and an adversarial review. Use lit-recon alone for a
+related-work chapter, a citation audit or a venue count; use topic-pick when the question is what the
+paper should be.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
