@@ -7,3 +7,8 @@ lit/
 *.jsonl
 funnel.md
 corpus.jsonl
+*.state.json
+accepted_papers.csv
+collision_check.csv
+topic_proposal.md
+lit_review_report.md

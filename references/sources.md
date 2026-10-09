@@ -7,7 +7,7 @@ Contents: [which source for which job](#which-source-for-which-job) · [arXiv](#
 [Semantic Scholar](#semantic-scholar) · [Crossref](#crossref) · [OpenAlex](#openalex) ·
 [no usable API](#venues-without-a-usable-api) · [verification ladder](#the-verification-ladder)
 
-For stdlib-only clients, backoff and Atom parsing, see `constrained-runtime.md`.
+For stdlib-only clients, backoff and Atom parsing, see `harness.md`.
 
 ---
 
@@ -39,7 +39,7 @@ https://export.arxiv.org/api/query?id_list=2406.13352,2501.00001
 
 ⚠ **https only.** Plain `http://export.arxiv.org/...` returned an empty body — no error, no results.
 
-Atom XML. Namespaces are mandatory in every lookup; see `constrained-runtime.md` for a working parser.
+Atom XML. Namespaces are mandatory in every lookup; see `harness.md` for a working parser.
 
 | Part | Syntax |
 |---|---|
@@ -149,7 +149,7 @@ https://api.openalex.org/sources?search=<venue name>
 
 Auth depends on the harness. Either a polite-pool `mailto=<addr>`, **or** `api_key=<key>` — some
 setups require the key and forbid sending `mailto` alongside it. Follow the brief; see
-`constrained-runtime.md` for fetching a key from a broker without leaking it. No key available →
+`harness.md` for fetching a key from a broker without leaking it. No key available →
 skip OpenAlex and record the skip; it is a supplement, not a pillar.
 
 ⚠ **Use the filter, not bare `search=`.** `search=` runs full text:
